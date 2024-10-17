@@ -38,3 +38,73 @@ pipeline {
         }
     }
 }
+
+
+######################################################################
+
+
+pipeline {
+    agent any
+    environment {
+        DOCKERHUB_CREDENTIALS = credentials('dockerhub-login')
+    }
+    stages {
+        stage('Cleanup Workspace') {
+            steps {
+                cleanWs()
+            }
+        }
+        stage('Clone Code') {
+            steps {
+                echo 'Cloning the code'
+                git url: "https://github.com/cloudspaceacademy/containerization-deployment.git", branch: "main"
+            }
+        }
+        stage('Build') {
+            steps {
+                script {
+                    try {
+                        sh "docker build -t notes-app ."
+                    } catch (Exception e) {
+                        error "Failed to build Docker image: ${e.message}"
+                    }
+                }
+            }
+        }
+        stage('Push to Docker Hub') {
+            steps {
+                script {
+                    try {
+                        sh "docker tag notes-app ${DOCKERHUB_CREDENTIALS_USR}/notes-app:${BUILD_NUMBER}"
+                        sh 'echo $DOCKERHUB_CREDENTIALS_PSW | docker login -u $DOCKERHUB_CREDENTIALS_USR --password-stdin'
+                        sh "docker push ${DOCKERHUB_CREDENTIALS_USR}/notes-app:${BUILD_NUMBER}"
+                    } catch (Exception e) {
+                        error "Failed to push Docker image: ${e.message}"
+                    }
+                }
+            }
+        }
+        stage('Deployment') {
+            steps {
+                echo 'Deploying container'
+                sh "docker-compose down && docker-compose up -d"
+            }
+        }
+        stage('Cleanup') {
+            steps {
+                sh "docker system prune -af"
+            }
+        }
+    }
+    post {
+        always {
+            sh "docker logout"
+        }
+        success {
+            echo 'Pipeline succeeded!'
+        }
+        failure {
+            echo 'Pipeline failed!'
+        }
+    }
+}
